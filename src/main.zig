@@ -11,8 +11,8 @@ pub fn main() !void {
     var world = World.init(allocator);
     defer world.deinit();
 
-    var entity_ptr = try allocator.create(Entity(Empty));
-    var entity_id = try world.entity_add(Empty, entity_ptr);
+    var entity_ptr = try allocator.create(Player);
+    var entity_id = try world.entity_add(Player, entity_ptr);
     var entity_ptr_retrieved = world.entity_get(entity_id) orelse {
         print("Could not retrieve the entity!\n", .{});
         return;
@@ -77,12 +77,13 @@ pub fn type_id(comptime T: type) usize {
 
 pub fn EntityVTable(comptime T: type) type {
     return struct {
-        update: ?*const fn (*Entity(T), f32) void = null,
-        render: ?*const fn (*Entity(T)) void = null,
-        area_entered: ?*const fn (*Entity(T), *Entity(void)) void = null,
-        area_exited: ?*const fn (*Entity(T), *Entity(void)) void = null,
-        world_added: ?*const fn (*Entity(T)) void = null,
-        deinit: ?*const fn (*Entity(T)) void = null,
+        update: ?*const fn (*T, f32) void = null,
+        render: ?*const fn (*T) void = null,
+        area_entered: ?*const fn (*T, *Entity(Empty)) void = null,
+        area_exited: ?*const fn (*T, *Entity(Empty)) void = null,
+        world_added: ?*const fn (*T) void = null,
+        deinit: ?*const fn (*T) void = null,
+        serialized_fields: ?*const fn () [][]u8 = null,
     };
 }
 
@@ -91,8 +92,8 @@ pub fn Entity(comptime T: type) type {
         position: math.Vector2 = math.vector2(0, 0),
         shear_x: math.Vector2 = math.vector2(1, 0),
         shear_y: math.Vector2 = math.vector2(0, 1),
-        world: *World,
-        vtable: *EntityVTable(T),
+        world: *World = undefined,
+        vtable: *const EntityVTable(T),
 
         data: T,
     };
@@ -126,7 +127,11 @@ const World = struct {
         self.open_indicies.deinit();
     }
 
-    pub fn entity_add(self: *World, comptime T: type, entity: *Entity(T)) !EntityId {
+    pub fn entity_add(self: *World, comptime T: type, entity: *T) !EntityId {
+        comptime {
+            if (T != Entity(anytype)) @compileError("E");
+        }
+
         if (self.open_indicies.items.len > 0) {
             const index: i32 = self.open_indicies.items[self.open_indicies.items.len - 1];
             self.open_indicies.items.len -= 1;
@@ -160,6 +165,22 @@ const World = struct {
     }
 };
 
-const Player = struct {
-    name: *const []u8,
-};
+const Player = Entity(struct {
+    name: []const u8,
+});
+
+fn player_update(self: *Player, delta: f32) void {
+    _ = self;
+    _ = delta;
+}
+
+pub fn player_init() Player {
+    return Player{
+        .vtable = &EntityVTable(Player){
+            .update = player_update,
+        },
+        .data = .{
+            .name = "Gamer",
+        },
+    };
+}
