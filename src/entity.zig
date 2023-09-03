@@ -23,16 +23,12 @@ pub const EntityVTable = struct {
 };
 
 pub const Entity = struct {
-    vtable: EntityVTable, // @todo: make this a ptr
+    vtable: EntityVTable = .{}, // @todo: make this a ptr
     position: math.Vector2 = math.vector2(0, 0),
     shear_x: math.Vector2 = math.vector2(1, 0),
     shear_y: math.Vector2 = math.vector2(0, 1),
     type_id: usize = undefined, // Used to make sure casting entities works properly. Is initialized when the entity is added to World.
-
-    pub fn update(self: @This(), delta: f32) void {
-        _ = self;
-        _ = delta;
-    }
+    world: *World = undefined,
 
     pub fn cast(self: *Entity, comptime T: type) ?*T {
         if (type_id(T) != self.type_id) return null;
@@ -46,8 +42,8 @@ pub const EntityId = struct {
 };
 
 pub const EntityArrayEntry = struct {
-    generation: i32,
     entity: *Entity,
+    generation: i32,
 };
 
 pub fn is_entity(comptime T: type) bool {
@@ -70,7 +66,7 @@ pub const World = struct {
         };
     }
 
-    pub fn deinit(self: World) void {
+    pub fn deinit(self: *World) void {
         self.entities.deinit();
         self.open_indicies.deinit();
     }
@@ -82,10 +78,41 @@ pub const World = struct {
 
         var entity_base: *Entity = @ptrCast(entity);
         entity_base.type_id = type_id(T);
-        comptime var vtable = EntityVTable{
-            .update = @ptrCast(&T.update),
-        };
+
+        // Match each function to one in the vtable if it exists and insert it.
+        comptime var vtable = EntityVTable{};
+        comptime {
+            for (std.meta.fields(EntityVTable)) |funcInfo| {
+                const func = funcInfo.name;
+                if (!@hasDecl(T, func)) continue;
+                const func_ptr = &@field(T, func);
+                @field(vtable, func) = @ptrCast(func_ptr);
+
+                // @todo: Add type safety pls
+
+                // const base = @typeInfo(@TypeOf(@field(vtable, func)));
+                // const override = @typeInfo(@TypeOf(@field(T, func)));
+
+                // if (override != .Function or base != .Function) continue;
+                // if (override.Func.returnType != base.Func.returnType) continue;
+
+                // if (override.Func.parameters.len != base.Func.parameters.len) continue;
+                // if (override.Func.parameters.len == 0) continue;
+                // if (!is_entity(override.Func.parameters[0].type) or !is_entity(override.Func.parameters[0].type)) return false;
+
+                // var matching = true;
+                // for (1..override.Func.parameters.len - 1) |i| {
+                //     if (override.Func.parameters[i].type == base.Func.parameters[i].type) continue;
+                //     matching = false;
+                //     break;
+                // }
+                // if (!matching) continue;
+                // vtable.func = @ptrCast(T.func);
+            }
+        }
+
         entity_base.vtable = vtable;
+        entity_base.world = self;
 
         if (self.open_indicies.items.len > 0) {
             const index: i32 = self.open_indicies.items[self.open_indicies.items.len - 1];
@@ -94,7 +121,7 @@ pub const World = struct {
             const generation = self.entities.items[@intCast(index)].generation + 1;
             self.entities.items[@intCast(index)] = EntityArrayEntry{
                 .generation = generation,
-                .entity = @ptrCast(entity),
+                .entity = entity_base,
             };
             return .{
                 .index = index,
@@ -103,7 +130,7 @@ pub const World = struct {
         } else {
             const entry = EntityArrayEntry{
                 .generation = 0,
-                .entity = @ptrCast(entity),
+                .entity = entity_base,
             };
             try self.entities.append(entry);
             return .{
@@ -113,19 +140,27 @@ pub const World = struct {
         }
     }
 
-    pub fn entity_get(self: World, id: EntityId) ?*Entity {
+    pub fn entity_get(self: *World, id: EntityId) ?*Entity {
         if (self.entities.items.len <= id.index) return null;
         if (self.entities.items[@intCast(id.index)].generation != id.generation) return null;
         return self.entities.items[@intCast(id.index)].entity;
     }
+
+    pub fn update(self: *World, delta: f32) void {
+        for (self.entities.items) |entry| {
+            const func = entry.entity.vtable.update orelse continue;
+            func(entry.entity, delta);
+        }
+    }
 };
 
 pub const Player = struct {
-    e: Entity,
+    e: Entity = .{},
+    counter: i32 = 0,
     name: []const u8 = "Gamer",
 
     pub fn update(player: *Player, delta: f32) void {
-        _ = player;
         _ = delta;
+        player.counter += 1;
     }
 };

@@ -12,16 +12,19 @@ pub fn main() !void {
     defer world.deinit();
 
     var player = try allocator.create(game.Player);
+    player.* = .{}; // Default initialization
+
     var entity_id = try world.entity_add(game.Player, player);
     var entity_retrieved = world.entity_get(entity_id) orelse {
         print("Could not retrieve the entity!\n", .{});
         return;
     };
+    world.update(0);
     var player_retrieved = entity_retrieved.cast(game.Player) orelse {
         print("Entity retrieved is not a player!", .{});
         return;
     };
-    print("Entity ptrs equivalent: {any}\n", .{player == player_retrieved});
+    print("player retrieved counter: {d}\n", .{player_retrieved.counter});
 }
 
 // pub fn Array(comptime T: type) type {
